@@ -58,8 +58,10 @@ fn main() {
     let mut added: u64 = 0;
 
     let homedir = dirs::home_dir().unwrap();
+    let hd = homedir.to_str().unwrap();
 
-    let mut it = WalkDir::new(homedir).into_iter();
+    let mut it = WalkDir::new(&homedir).into_iter();
+
     loop {
         let entry = match it.next() {
             None => break,
@@ -84,7 +86,7 @@ fn main() {
                     let path = String::from(entry.path().to_string_lossy());
 
                     if args.verbose {
-                        println!("{} ", path);
+                        println!("Skip {}", path.replace(hd, "~"));
                     }
 
                     if !is_already_excluded(&path) {
@@ -93,7 +95,7 @@ fn main() {
                         exlcude_path(&path);
                         // Add the time machine exclusion, show the excluded dir and size
                         let size = size_of_path(&path);
-                        println!(" excluding {} ({})", path, size);
+                        println!("Add  {} ({})", path.replace(hd, "~"), size);
                     } else {
                         skipped += 1
                     }
