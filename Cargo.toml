@@ -9,3 +9,5 @@ edition = "2021"
 clap = { version = "4.0.7", features = ["derive"] }
 dirs = "4.0.0"
 walkdir = "2.3.2"
+size = "0.4"
+bytesize = { version = "1.1.0", features = ["serde"] }

@@ -1,4 +1,6 @@
+use bytesize::ByteSize;
 use clap::Parser;
+use size::Size;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
@@ -42,6 +44,15 @@ fn size_of_path(path: &str) -> String {
     return chunks[0].trim().to_string();
 }
 
+fn size_of_path_alt(path: &str) -> u64 {
+    let output = Command::new("du").arg("-hks").arg(&path).output().unwrap();
+    let chunks: Vec<&str> = str::from_utf8(&output.stdout[..])
+        .unwrap()
+        .split("\t")
+        .collect();
+    return chunks[0].trim().parse().unwrap();
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -61,7 +72,7 @@ fn main() {
     let hd = homedir.to_str().unwrap();
 
     let mut it = WalkDir::new(&homedir).into_iter();
-
+    println!("- hunting dependency paird from {}", homedir.display());
     loop {
         let entry = match it.next() {
             None => break,
@@ -86,7 +97,16 @@ fn main() {
                     let path = String::from(entry.path().to_string_lossy());
 
                     if args.verbose {
-                        println!("Skip {}", path.replace(hd, "~"));
+                        let size = size_of_path_alt(&path);
+                        let file_size = Size::from_kilobytes(size);
+                        println!(
+                            "Skip {} {} ({}) {} {}",
+                            path.replace(hd, "~"),
+                            size,
+                            size / 1024,
+                            file_size,
+                            ByteSize::kb(size / 1024)
+                        );
                     }
 
                     if !is_already_excluded(&path) {
