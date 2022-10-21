@@ -86,8 +86,7 @@ fn main() {
                     let path = String::from(entry.path().to_string_lossy());
 
                     if args.verbose {
-                        let size = size_of_path(&path);
-                        println!("! {} ({})", path.replace(hd, "~"), size,);
+                        println!("! {}", path.replace(hd, "~"));
                     }
 
                     if !is_already_excluded(&path) {
