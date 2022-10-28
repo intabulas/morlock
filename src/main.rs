@@ -49,6 +49,8 @@ fn main() {
         ("bower_components", "bower.json"), // oldschool js
         ("node_modules", "package.json"),   // node
         ("target", "Cargo.toml"),           // rust
+        ("target", "pom.xml"),              // java/maven
+        ("Pods", "Podfile"),                // cocoapods
     ]);
 
     let exclude = vec!["Library", ".Trash"];
@@ -107,7 +109,7 @@ fn main() {
     }
 
     println!(
-        "summary: matched: {}, skipped: {}, added: {}",
+        "@ matched {}, skipped {}, added {}",
         matched, skipped, added,
     );
 }
