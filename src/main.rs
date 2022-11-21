@@ -1,45 +1,27 @@
 use clap::Parser;
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
-use std::str;
 use walkdir::WalkDir;
+extern crate ini;
+mod dropbox;
+mod utils;
+
+use dropbox::*;
+use utils::*;
+
+// use std::{
+//     fs::File,
+//     io::{prelude::*, BufReader},
+// };
 
 #[derive(Parser, Debug)]
 struct Args {
     #[arg(short, long)]
     verbose: bool,
-}
-
-// see if the path is already excluded from tm
-fn is_already_excluded(path: &str) -> bool {
-    let isexcluded = Command::new("tmutil")
-        .arg("isexcluded")
-        .arg(&path)
-        .output()
-        .unwrap();
-
-    str::from_utf8(&isexcluded.stdout[..])
-        .unwrap()
-        .starts_with("[Excluded]")
-}
-
-// exclude a path from tm
-fn exlcude_path(path: &str) {
-    let _ = Command::new("tmutil")
-        .arg("addexclusion")
-        .arg(&path)
-        .output();
-}
-
-// get asize of path in human readable for showing in stats
-fn size_of_path(path: &str) -> String {
-    let output = Command::new("du").arg("-hs").arg(&path).output().unwrap();
-    let chunks: Vec<&str> = str::from_utf8(&output.stdout[..])
-        .unwrap()
-        .split("\t")
-        .collect();
-    return chunks[0].trim().to_string();
+    #[arg(long)]
+    skip_dropbox: bool,
+    #[arg(long)]
+    dont_sync_dropbox: bool,
 }
 
 fn main() {
@@ -53,7 +35,7 @@ fn main() {
         ("Pods", "Podfile"),                // cocoapods
     ]);
 
-    let exclude = vec!["Library", ".Trash"];
+    let mut exclude = vec!["Library", ".Trash"];
 
     let mut matched: u64 = 0;
     let mut skipped: u64 = 0;
@@ -62,8 +44,21 @@ fn main() {
     let homedir = dirs::home_dir().unwrap();
     let hd = homedir.to_str().unwrap();
 
-    let mut it = WalkDir::new(&homedir).into_iter();
+    let maestral = determine_dropbox_folder();
+
+    let has_dropbox = maestral.is_some();
+
+    let pp = get_path_last_part(maestral.unwrap(), '/');
+    if has_dropbox && args.skip_dropbox {
+        exclude.push(&pp);
+    }
+
     println!("hunting from {}", homedir.display());
+    if has_dropbox {
+        exclude.push("Dropbox");
+    }
+
+    let mut it = WalkDir::new(&homedir).into_iter();
     loop {
         let entry = match it.next() {
             None => break,
@@ -76,8 +71,12 @@ fn main() {
 
             // Exclude some paths
             if exclude.contains(&path.as_str()) {
+                if args.verbose {
+                    println!("^ {}", path.replace(hd, "~"));
+                }
                 it.skip_current_dir();
             }
+
             if matchers.contains_key(&path.as_str()) {
                 let parent_path = entry.path().parent().unwrap().to_str();
                 let sibling_name = matchers.get(&path.as_str());
@@ -87,9 +86,9 @@ fn main() {
                     matched += 1;
                     let path = String::from(entry.path().to_string_lossy());
 
-                    if args.verbose {
-                        println!("! {}", path.replace(hd, "~"));
-                    }
+                    // if args.verbose {
+                    //     println!("! {}", path.replace(hd, "~"));
+                    // }
 
                     if !is_already_excluded(&path) {
                         added += 1;
