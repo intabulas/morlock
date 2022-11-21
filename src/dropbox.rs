@@ -41,7 +41,7 @@ pub fn determine_dropbox_folder() -> Option<String> {
     // Are they using maestral? they should be
 }
 
-pub fn get_path_last_part(path: String, sep: char) -> String {
+pub fn get_path_last_part(path: &str, sep: char) -> String {
     let pieces = path.split(sep);
     match pieces.last() {
         Some(p) => p.into(),

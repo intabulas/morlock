@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use walkdir::WalkDir;
 extern crate ini;
+use std::path::PathBuf;
 mod dropbox;
 mod utils;
 
@@ -24,6 +25,13 @@ struct Args {
     dont_sync_dropbox: bool,
 }
 
+#[derive(Debug)]
+struct Stats {
+    matched: u64,
+    skipped: u64,
+    added: u64,
+}
+
 fn main() {
     let args = Args::parse();
 
@@ -37,9 +45,11 @@ fn main() {
 
     let mut exclude = vec!["Library", ".Trash"];
 
-    let mut matched: u64 = 0;
-    let mut skipped: u64 = 0;
-    let mut added: u64 = 0;
+    let mut stats = Stats {
+        added: 0,
+        matched: 0,
+        skipped: 0,
+    };
 
     let homedir = dirs::home_dir().unwrap();
     let hd = homedir.to_str().unwrap();
@@ -47,8 +57,8 @@ fn main() {
     let maestral = determine_dropbox_folder();
 
     let has_dropbox = maestral.is_some();
-
-    let pp = get_path_last_part(maestral.unwrap(), '/');
+    let m = maestral.unwrap().clone();
+    let pp = get_path_last_part(&m, '/');
     if has_dropbox && args.skip_dropbox {
         exclude.push(&pp);
     }
@@ -58,7 +68,30 @@ fn main() {
         exclude.push("Dropbox");
     }
 
-    let mut it = WalkDir::new(&homedir).into_iter();
+    // do time machine exclusions
+    walk(&homedir, &exclude, &matchers, hd, &mut stats, args.verbose);
+
+    let dbxpath = PathBuf::from(&m);
+
+    print!("\n\n=============\n\n");
+
+    walk(&dbxpath, &vec![], &matchers, hd, &mut stats, args.verbose);
+
+    println!(
+        "@ matched {}, skipped {}, added {}",
+        stats.matched, stats.skipped, stats.added,
+    );
+}
+
+fn walk(
+    root: &PathBuf,
+    exclusions: &Vec<&str>,
+    matchers: &HashMap<&str, &str>,
+    replace: &str,
+    stats: &mut Stats,
+    verbose: bool,
+) {
+    let mut it = WalkDir::new(root).into_iter();
     loop {
         let entry = match it.next() {
             None => break,
@@ -70,9 +103,9 @@ fn main() {
             let path = String::from(entry.file_name().to_string_lossy());
 
             // Exclude some paths
-            if exclude.contains(&path.as_str()) {
-                if args.verbose {
-                    println!("^ {}", path.replace(hd, "~"));
+            if exclusions.contains(&path.as_str()) {
+                if verbose {
+                    println!("^ {}", path.replace(replace, "~"));
                 }
                 it.skip_current_dir();
             }
@@ -83,22 +116,22 @@ fn main() {
                 let sibling = format!("{}/{}", parent_path.unwrap(), sibling_name.unwrap());
 
                 if Path::new(sibling.as_str()).exists() {
-                    matched += 1;
+                    stats.matched += 1;
                     let path = String::from(entry.path().to_string_lossy());
 
-                    // if args.verbose {
-                    //     println!("! {}", path.replace(hd, "~"));
-                    // }
+                    if verbose {
+                        println!("! {}", path.replace(replace, "~"));
+                    }
 
                     if !is_already_excluded(&path) {
-                        added += 1;
+                        stats.added += 1;
                         // Add the time machine exclusion, show the excluded dir and size
                         exlcude_path(&path);
                         // Add the time machine exclusion, show the excluded dir and size
                         let size = size_of_path(&path);
-                        println!("+ {} ({})", path.replace(hd, "~"), size);
+                        println!("+ {} ({})", path.replace(replace, "~"), size);
                     } else {
-                        skipped += 1
+                        stats.skipped += 1
                     }
                     // no need to traverse any deeper
                     it.skip_current_dir();
@@ -106,9 +139,4 @@ fn main() {
             }
         }
     }
-
-    println!(
-        "@ matched {}, skipped {}, added {}",
-        matched, skipped, added,
-    );
 }
