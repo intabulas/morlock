@@ -14,7 +14,7 @@ pub fn is_already_excluded(path: &str) -> bool {
 }
 
 // exclude a path from tm
-pub fn exlcude_path(path: &str) {
+pub fn exclude_path(path: &str) {
     let _ = Command::new("tmutil")
         .arg("addexclusion")
         .arg(&path)

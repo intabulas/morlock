@@ -2,6 +2,8 @@ use ini::Ini;
 extern crate base64;
 use base64::decode;
 use std::path::Path;
+use std::str;
+use xattr::{list, set};
 
 use std::{
     fs::File,
@@ -10,6 +12,7 @@ use std::{
 
 const PATH_MAESTRAL: &str = "/Library/Application Support/maestral/maestral.ini";
 const PATH_DROPBOX: &str = "/.dropbox/host.db";
+const DROPBOX_ATTR: &str = "com.dropbox.ignored";
 
 pub fn determine_dropbox_folder() -> Option<String> {
     let homedir = dirs::home_dir().unwrap().display().to_string();
@@ -47,4 +50,23 @@ pub fn get_path_last_part(path: &str, sep: char) -> String {
         Some(p) => p.into(),
         None => path.into(),
     }
+}
+
+pub fn is_already_ignored(path: &str) -> bool {
+    let mut xattrs = list(path).unwrap().peekable();
+    if xattrs.peek().is_none() {
+        return false;
+    }
+    for attr in xattrs {
+        if attr == DROPBOX_ATTR {
+            return true;
+        }
+    }
+    false
+}
+
+// exclude a path from tm
+pub fn dont_sync_path(path: &str) {
+    let value = vec![1; 1];
+    let _ = set(path, DROPBOX_ATTR, &value);
 }

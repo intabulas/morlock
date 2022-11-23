@@ -69,13 +69,31 @@ fn main() {
     }
 
     // do time machine exclusions
-    walk(&homedir, &exclude, &matchers, hd, &mut stats, args.verbose);
+    walk(
+        &homedir,
+        &exclude,
+        &matchers,
+        is_already_excluded,
+        exclude_path,
+        hd,
+        &mut stats,
+        args.verbose,
+    );
 
     let dbxpath = PathBuf::from(&m);
 
-    print!("\n\n=============\n\n");
+    // print!("\n\n=============\n\n");
 
-    walk(&dbxpath, &vec![], &matchers, hd, &mut stats, args.verbose);
+    walk(
+        &dbxpath,
+        &vec![],
+        &matchers,
+        is_already_ignored,
+        dont_sync_path,
+        hd,
+        &mut stats,
+        args.verbose,
+    );
 
     println!(
         "@ matched {}, skipped {}, added {}",
@@ -87,6 +105,8 @@ fn walk(
     root: &PathBuf,
     exclusions: &Vec<&str>,
     matchers: &HashMap<&str, &str>,
+    already_excluded: fn(&str) -> bool,
+    exclude: fn(&str),
     replace: &str,
     stats: &mut Stats,
     verbose: bool,
@@ -123,10 +143,10 @@ fn walk(
                         println!("! {}", path.replace(replace, "~"));
                     }
 
-                    if !is_already_excluded(&path) {
+                    if !already_excluded(&path) {
                         stats.added += 1;
                         // Add the time machine exclusion, show the excluded dir and size
-                        exlcude_path(&path);
+                        exclude(&path);
                         // Add the time machine exclusion, show the excluded dir and size
                         let size = size_of_path(&path);
                         println!("+ {} ({})", path.replace(replace, "~"), size);
