@@ -1,14 +1,13 @@
 use clap::Parser;
-use std::collections::HashMap;
 use std::path::Path;
+use std::{collections::HashMap, process::Command, str};
 use walkdir::WalkDir;
+use xattr::{list, set};
 extern crate ini;
 use std::path::PathBuf;
 mod dropbox;
-mod utils;
 
 use dropbox::*;
-use utils::*;
 
 // use std::{
 //     fs::File,
@@ -32,6 +31,9 @@ struct Stats {
     added: u64,
 }
 
+const XATTR_DROPBOX: &str = "com.dropbox.ignored";
+const XATTR_TIMEMACHINE: &str = "com.apple.metadata:com_apple_backup_excludeItem";
+
 fn main() {
     let args = Args::parse();
 
@@ -43,7 +45,7 @@ fn main() {
         ("Pods", "Podfile"),                // cocoapods
     ]);
 
-    let mut exclude = vec!["Library", ".Trash"];
+    let mut tm_exclude = vec!["Library", ".Trash"];
 
     let mut stats = Stats {
         added: 0,
@@ -54,27 +56,25 @@ fn main() {
     let homedir = dirs::home_dir().unwrap();
     let hd = homedir.to_str().unwrap();
 
-    let maestral = determine_dropbox_folder();
+    let dbxclient = DropboxProvider::new();
+
+    let maestral = dbxclient.get_folder();
 
     let has_dropbox = maestral.is_some();
     let m = maestral.unwrap().clone();
-    let pp = get_path_last_part(&m, '/');
+    let pp = dbxclient.get_path_last_part(&m, '/');
     if has_dropbox && args.skip_dropbox {
-        exclude.push(&pp);
+        tm_exclude.push(&pp);
     }
 
     println!("hunting from {}", homedir.display());
-    if has_dropbox {
-        exclude.push("Dropbox");
-    }
 
     // do time machine exclusions
     walk(
         &homedir,
-        &exclude,
+        &tm_exclude,
         &matchers,
-        is_already_excluded,
-        exclude_path,
+        XATTR_TIMEMACHINE,
         hd,
         &mut stats,
         args.verbose,
@@ -82,14 +82,12 @@ fn main() {
 
     let dbxpath = PathBuf::from(&m);
 
-    // print!("\n\n=============\n\n");
-
+    println!("\n\nChecking com.dropbox.ignored xattrs\n");
     walk(
         &dbxpath,
         &vec![],
         &matchers,
-        is_already_ignored,
-        dont_sync_path,
+        XATTR_DROPBOX,
         hd,
         &mut stats,
         args.verbose,
@@ -105,8 +103,7 @@ fn walk(
     root: &PathBuf,
     exclusions: &Vec<&str>,
     matchers: &HashMap<&str, &str>,
-    already_excluded: fn(&str) -> bool,
-    exclude: fn(&str),
+    key: &str,
     replace: &str,
     stats: &mut Stats,
     verbose: bool,
@@ -143,12 +140,12 @@ fn walk(
                         println!("! {}", path.replace(replace, "~"));
                     }
 
-                    if !already_excluded(&path) {
+                    if !already_excluded(&key, &path) {
                         stats.added += 1;
                         // Add the time machine exclusion, show the excluded dir and size
-                        exclude(&path);
+                        exclude(&key, &path);
                         // Add the time machine exclusion, show the excluded dir and size
-                        let size = size_of_path(&path);
+                        let size = size_of(&path);
                         println!("+ {} ({})", path.replace(replace, "~"), size);
                     } else {
                         stats.skipped += 1
@@ -159,4 +156,31 @@ fn walk(
             }
         }
     }
+}
+
+pub fn already_excluded(key: &str, path: &str) -> bool {
+    let mut xattrs = list(path).unwrap().peekable();
+    if xattrs.peek().is_none() {
+        return false;
+    }
+    for attr in xattrs {
+        if attr == key {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn exclude(key: &str, path: &str) {
+    let value = vec![1; 1];
+    let _ = set(path, key, &value);
+}
+
+pub fn size_of(path: &str) -> String {
+    let output = Command::new("du").arg("-hs").arg(&path).output().unwrap();
+    let chunks: Vec<&str> = str::from_utf8(&output.stdout[..])
+        .unwrap()
+        .split("\t")
+        .collect();
+    return chunks[0].trim().to_string();
 }
