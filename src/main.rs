@@ -1,4 +1,5 @@
 use clap::Parser;
+use dropbox::DropBox;
 use std::path::Path;
 use std::{collections::HashMap, process::Command, str};
 use walkdir::WalkDir;
@@ -26,6 +27,14 @@ struct Stats {
     added: u64,
 }
 
+struct WalkOptions<'a> {
+    pub directory: &'a PathBuf,
+    pub exclusions: &'a [&'a str],
+    pub matchers: &'a HashMap<&'a str, &'a str>,
+    pub attribute: &'a str,
+    pub root_path: &'a str,
+    pub verbose: bool,
+}
 const XATTR_DROPBOX: &str = "com.dropbox.ignored";
 const XATTR_TIMEMACHINE: &str = "com.apple.metadata:com_apple_backup_excludeItem";
 
@@ -61,29 +70,30 @@ fn main() {
         starting_path = &specified_path;
     }
 
-    let maestral = dropbox::get_folder();
-
-    let has_dropbox = maestral.is_some();
-    let m = maestral.unwrap();
-    let pp = dropbox::get_path_last_part(&m, '/');
+    let mut dbx = DropBox::new();
+    let dbxname = &dbx.name();
+    let dbxpath = &dbx.folder();
+    let has_dropbox = !dbx.path.is_empty();
     if has_dropbox && args.tm_skip_dropbox {
-        tm_exclude.push(&pp);
+        tm_exclude.push(dbxname);
     }
 
     if args.verbose {
-        println!("- Preventing TimeMachine Backup ({})", starting_path);
+        println!("- Excluding package dependencies from TimeMachine");
+        println!("  > From {}", starting_path);
     }
 
+    let tmotions = WalkOptions {
+        directory: &homedir,
+        exclusions: &tm_exclude,
+        matchers: &matchers,
+        attribute: XATTR_TIMEMACHINE,
+        root_path: starting_path,
+        verbose: args.verbose,
+    };
+
     // do time machine exclusions
-    walk(
-        &homedir,
-        &tm_exclude,
-        &matchers,
-        XATTR_TIMEMACHINE,
-        starting_path,
-        &mut tmstats,
-        args.verbose,
-    );
+    walk(tmotions, &mut tmstats);
 
     if args.verbose {
         println!(
@@ -93,21 +103,23 @@ fn main() {
     }
 
     // lets to Dropbox
-    let dbxpath = PathBuf::from(&m);
+    let dbxpath = PathBuf::from(&dbxpath);
 
     if args.verbose {
-        println!("\n- Preventing Dropbox Sync ({})", &m);
+        println!("\n- Excluding package dependencies from Dropbox Sync");
+        println!("  > From {}", &dbx.path);
     }
 
-    walk(
-        &dbxpath,
-        &[],
-        &matchers,
-        XATTR_DROPBOX,
-        starting_path,
-        &mut dbxstats,
-        args.verbose,
-    );
+    let dbxoptions = WalkOptions {
+        directory: &dbxpath,
+        exclusions: &[],
+        matchers: &matchers,
+        attribute: XATTR_DROPBOX,
+        root_path: starting_path,
+        verbose: args.verbose,
+    };
+
+    walk(dbxoptions, &mut dbxstats);
 
     if args.verbose {
         println!(
@@ -117,16 +129,8 @@ fn main() {
     }
 }
 
-fn walk(
-    root: &PathBuf,
-    exclusions: &[&str],
-    matchers: &HashMap<&str, &str>,
-    key: &str,
-    replace: &str,
-    stats: &mut Stats,
-    verbose: bool,
-) {
-    let mut it = WalkDir::new(root).into_iter();
+fn walk(options: WalkOptions, stats: &mut Stats) {
+    let mut it = WalkDir::new(options.directory).into_iter();
     loop {
         let entry = match it.next() {
             None => break,
@@ -138,27 +142,26 @@ fn walk(
             let path = String::from(entry.file_name().to_string_lossy());
 
             // Exclude some paths
-            if exclusions.contains(&path.as_str()) {
+            if options.exclusions.contains(&path.as_str()) {
                 it.skip_current_dir();
             }
 
-            if matchers.contains_key(&path.as_str()) {
+            if options.matchers.contains_key(&path.as_str()) {
                 let parent_path = entry.path().parent().unwrap().to_str();
-                let sibling_name = matchers.get(&path.as_str());
+                let sibling_name = options.matchers.get(&path.as_str());
                 let sibling = [parent_path.unwrap(), sibling_name.unwrap()].join("/");
 
                 if Path::new(sibling.as_str()).exists() {
                     stats.matched += 1;
                     let path = String::from(entry.path().to_string_lossy());
 
-                    if !already_excluded(key, &path) {
+                    if !already_excluded(options.attribute, &path) {
                         stats.added += 1;
                         // Add the time machine exclusion, show the excluded dir and size
-                        exclude(key, &path);
+                        exclude(options.attribute, &path);
                         // Add the time machine exclusion, show the excluded dir and size
-                        let size = size_of(&path);
-                        if verbose {
-                            println!("+ {} ({})", path.replace(replace, "~"), size);
+                        if options.verbose {
+                            println!("+ {} ", path.replace(options.root_path, "~"),);
                         }
                     } else {
                         stats.skipped += 1
