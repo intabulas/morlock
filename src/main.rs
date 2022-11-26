@@ -7,19 +7,12 @@ extern crate ini;
 use std::path::PathBuf;
 mod dropbox;
 
-use dropbox::*;
-
-// use std::{
-//     fs::File,
-//     io::{prelude::*, BufReader},
-// };
-
 #[derive(Parser, Debug)]
 struct Args {
     #[arg(short, long)]
     verbose: bool,
     #[arg(long)]
-    skip_dropbox: bool,
+    tm_skip_dropbox: bool,
     #[arg(long)]
     dont_sync_dropbox: bool,
 }
@@ -56,14 +49,12 @@ fn main() {
     let homedir = dirs::home_dir().unwrap();
     let hd = homedir.to_str().unwrap();
 
-    let dbxclient = DropboxProvider::new();
-
-    let maestral = dbxclient.get_folder();
+    let maestral = dropbox::get_folder();
 
     let has_dropbox = maestral.is_some();
     let m = maestral.unwrap().clone();
-    let pp = dbxclient.get_path_last_part(&m, '/');
-    if has_dropbox && args.skip_dropbox {
+    let pp = dropbox::get_path_last_part(&m, '/');
+    if has_dropbox && args.tm_skip_dropbox {
         tm_exclude.push(&pp);
     }
 
