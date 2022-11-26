@@ -29,15 +29,15 @@ pub fn get_folder() -> Option<String> {
             .collect();
 
         let bytes = decode(lines[1].as_bytes()).unwrap();
-        return Some(String::from_utf8(bytes.clone()).unwrap());
+        Some(String::from_utf8(bytes).unwrap())
     } else if Path::new(&maestral_path).exists() {
         let conf = Ini::load_from_file(maestral_path).unwrap();
         let section = conf.section(Some("sync")).unwrap();
         let path = section.get("path").unwrap();
 
-        return Some(path.to_string());
+        Some(path.to_string())
     } else {
-        return None;
+        None
     }
 
     // Are they using maestral? they should be

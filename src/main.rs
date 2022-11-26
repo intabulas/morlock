@@ -52,7 +52,7 @@ fn main() {
     let maestral = dropbox::get_folder();
 
     let has_dropbox = maestral.is_some();
-    let m = maestral.unwrap().clone();
+    let m = maestral.unwrap();
     let pp = dropbox::get_path_last_part(&m, '/');
     if has_dropbox && args.tm_skip_dropbox {
         tm_exclude.push(&pp);
@@ -76,7 +76,7 @@ fn main() {
     println!("\n\nChecking com.dropbox.ignored xattrs\n");
     walk(
         &dbxpath,
-        &vec![],
+        &[],
         &matchers,
         XATTR_DROPBOX,
         hd,
@@ -92,7 +92,7 @@ fn main() {
 
 fn walk(
     root: &PathBuf,
-    exclusions: &Vec<&str>,
+    exclusions: &[&str],
     matchers: &HashMap<&str, &str>,
     key: &str,
     replace: &str,
@@ -131,10 +131,10 @@ fn walk(
                         println!("! {}", path.replace(replace, "~"));
                     }
 
-                    if !already_excluded(&key, &path) {
+                    if !already_excluded(key, &path) {
                         stats.added += 1;
                         // Add the time machine exclusion, show the excluded dir and size
-                        exclude(&key, &path);
+                        exclude(key, &path);
                         // Add the time machine exclusion, show the excluded dir and size
                         let size = size_of(&path);
                         println!("+ {} ({})", path.replace(replace, "~"), size);
@@ -168,10 +168,10 @@ pub fn exclude(key: &str, path: &str) {
 }
 
 pub fn size_of(path: &str) -> String {
-    let output = Command::new("du").arg("-hs").arg(&path).output().unwrap();
+    let output = Command::new("du").arg("-hs").arg(path).output().unwrap();
     let chunks: Vec<&str> = str::from_utf8(&output.stdout[..])
         .unwrap()
-        .split("\t")
+        .split('\t')
         .collect();
     return chunks[0].trim().to_string();
 }
