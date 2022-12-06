@@ -30,7 +30,7 @@ struct Stats {
 struct WalkOptions<'a> {
     pub directory: &'a PathBuf,
     pub exclusions: &'a [&'a str],
-    pub matchers: &'a HashMap<&'a str, &'a str>,
+    pub matchers: &'a HashMap<&'a str, Vec<&'a str>>,
     pub attribute: &'a str,
     pub root_path: &'a str,
     pub verbose: bool,
@@ -41,13 +41,12 @@ const XATTR_TIMEMACHINE: &str = "com.apple.metadata:com_apple_backup_excludeItem
 fn main() {
     let args = Args::parse();
 
-    let matchers = HashMap::from([
-        ("bower_components", "bower.json"), // oldschool js
-        ("node_modules", "package.json"),   // node
-        ("target", "Cargo.toml"),           // rust
-        ("target", "pom.xml"),              // java/maven
-        ("Pods", "Podfile"),                // cocoapods
-    ]);
+    let mut matchers = HashMap::new();
+    matchers.insert("bower_components", vec!["bower.json"]);
+    matchers.insert("node_modules", vec!["package.json"]);
+    matchers.insert("target", vec!["Cargo.toml", "pox.xml"]);
+    matchers.insert("Pods", vec!["Podfile"]);
+    matchers.insert("vendor", vec!["go.mod"]);
 
     let mut tm_exclude = vec!["Library", ".Trash"];
 
@@ -148,26 +147,27 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
 
             if options.matchers.contains_key(&path.as_str()) {
                 let parent_path = entry.path().parent().unwrap().to_str();
-                let sibling_name = options.matchers.get(&path.as_str());
-                let sibling = [parent_path.unwrap(), sibling_name.unwrap()].join("/");
+                let siblings = options.matchers.get(&path.as_str());
+                for sibling_name in siblings.unwrap().into_iter() {
+                    let sibling = [parent_path.unwrap(), sibling_name].join("/");
+                    if Path::new(sibling.as_str()).exists() {
+                        stats.matched += 1;
+                        let path = String::from(entry.path().to_string_lossy());
 
-                if Path::new(sibling.as_str()).exists() {
-                    stats.matched += 1;
-                    let path = String::from(entry.path().to_string_lossy());
-
-                    if !already_excluded(options.attribute, &path) {
-                        stats.added += 1;
-                        // Add the time machine exclusion, show the excluded dir and size
-                        exclude(options.attribute, &path);
-                        // Add the time machine exclusion, show the excluded dir and size
-                        if options.verbose {
-                            println!("  + {} ", path.replace(options.root_path, "~"),);
+                        if !already_excluded(options.attribute, &path) {
+                            stats.added += 1;
+                            // Add the time machine exclusion, show the excluded dir and size
+                            exclude(options.attribute, &path);
+                            // Add the time machine exclusion, show the excluded dir and size
+                            if options.verbose {
+                                println!("  + {} ", path.replace(options.root_path, "~"),);
+                            }
+                        } else {
+                            stats.skipped += 1
                         }
-                    } else {
-                        stats.skipped += 1
+                        // no need to traverse any deeper
+                        it.skip_current_dir();
                     }
-                    // no need to traverse any deeper
-                    it.skip_current_dir();
                 }
             }
         }
