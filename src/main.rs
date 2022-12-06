@@ -1,5 +1,6 @@
 use clap::Parser;
 use dropbox::DropBox;
+use std::fs::File;
 use std::path::Path;
 use std::{collections::HashMap, process::Command, str};
 use walkdir::WalkDir;
@@ -25,6 +26,7 @@ struct Stats {
     matched: u64,
     skipped: u64,
     added: u64,
+    immutable: u64,
 }
 
 struct WalkOptions<'a> {
@@ -54,12 +56,14 @@ fn main() {
         added: 0,
         matched: 0,
         skipped: 0,
+        immutable: 0,
     };
 
     let mut dbxstats = Stats {
         added: 0,
         matched: 0,
         skipped: 0,
+        immutable: 0,
     };
     let homedir = dirs::home_dir().unwrap();
 
@@ -96,8 +100,8 @@ fn main() {
 
     if args.verbose {
         println!(
-            "  % checked {}, skipped {}, added {}",
-            tmstats.matched, tmstats.skipped, tmstats.added,
+            "  % checked {}, skipped {}, added {}, immutable: {}",
+            tmstats.matched, tmstats.skipped, tmstats.added, tmstats.immutable
         );
     }
 
@@ -150,9 +154,14 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
                 let siblings = options.matchers.get(&path.as_str());
                 for sibling_name in siblings.unwrap().into_iter() {
                     let sibling = [parent_path.unwrap(), sibling_name].join("/");
-                    if Path::new(sibling.as_str()).exists() {
-                        stats.matched += 1;
+                    let sibling_path = Path::new(sibling.as_str());
+                    if sibling_path.exists() {
                         let path = String::from(entry.path().to_string_lossy());
+                        if !is_writeable(sibling_path) {
+                            stats.immutable += 1;
+                            continue;
+                        }
+                        stats.matched += 1;
 
                         if !already_excluded(options.attribute, &path) {
                             stats.added += 1;
@@ -185,6 +194,15 @@ pub fn already_excluded(key: &str, path: &str) -> bool {
         }
     }
     false
+}
+
+pub fn is_writeable(path: impl AsRef<Path>) -> bool {
+    File::options()
+        .write(true)
+        // Make sure we don't accidentally truncate the file.
+        .truncate(false)
+        .open(path.as_ref())
+        .is_ok()
 }
 
 pub fn exclude(key: &str, path: &str) {
