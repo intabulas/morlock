@@ -80,7 +80,7 @@ fn main() {
 
     if args.verbose {
         println!("- Excluding package dependencies from TimeMachine");
-        println!("  > From {}", starting_path);
+        println!("  - From {}", starting_path);
     }
 
     let tmotions = WalkOptions {
@@ -107,7 +107,7 @@ fn main() {
 
     if args.verbose {
         println!("\n- Excluding package dependencies from Dropbox Sync");
-        println!("  > From {}", &dbx.path);
+        println!("  - From {}", &dbx.path);
     }
 
     let dbxoptions = WalkOptions {
@@ -161,7 +161,7 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
                         exclude(options.attribute, &path);
                         // Add the time machine exclusion, show the excluded dir and size
                         if options.verbose {
-                            println!("+ {} ", path.replace(options.root_path, "~"),);
+                            println!("  + {} ", path.replace(options.root_path, "~"),);
                         }
                     } else {
                         stats.skipped += 1
