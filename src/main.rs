@@ -2,7 +2,7 @@ use clap::Parser;
 use dropbox::DropBox;
 use std::fs::File;
 use std::path::Path;
-use std::{collections::HashMap, process::Command, str};
+use std::{collections::HashMap, str};
 use walkdir::WalkDir;
 use xattr::{list, set};
 extern crate ini;
@@ -77,12 +77,14 @@ fn main() {
     let dbxname = &dbx.name();
     let dbxpath = &dbx.folder();
     let has_dropbox = !dbx.path.is_empty();
+
+    // if dbx is already excluded from time machine, no need to travers
     if has_dropbox && args.tm_skip_dropbox {
         tm_exclude.push(dbxname);
     }
 
     if args.verbose {
-        println!("- Excluding package dependencies from TimeMachine");
+        println!("- Excluding package dependencies from Time Machine");
         println!("  - From {}", starting_path);
     }
 
@@ -208,13 +210,4 @@ pub fn is_writeable(path: impl AsRef<Path>) -> bool {
 pub fn exclude(key: &str, path: &str) {
     let value = vec![1; 1];
     let _ = set(path, key, &value);
-}
-
-pub fn size_of(path: &str) -> String {
-    let output = Command::new("du").arg("-hs").arg(path).output().unwrap();
-    let chunks: Vec<&str> = str::from_utf8(&output.stdout[..])
-        .unwrap()
-        .split('\t')
-        .collect();
-    return chunks[0].trim().to_string();
 }
