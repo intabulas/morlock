@@ -19,6 +19,8 @@ struct Args {
     dont_sync_dropbox: bool,
     #[arg(short, long)]
     path: Option<String>,
+    #[arg(long)]
+    show_immutable: bool,
 }
 
 #[derive(Debug)]
@@ -36,6 +38,7 @@ struct WalkOptions<'a> {
     pub attribute: &'a str,
     pub root_path: &'a str,
     pub verbose: bool,
+    pub show_immutable: bool,
 }
 const XATTR_DROPBOX: &str = "com.dropbox.ignored";
 const XATTR_TIMEMACHINE: &str = "com.apple.metadata:com_apple_backup_excludeItem";
@@ -50,6 +53,7 @@ fn main() {
     matchers.insert("Pods", vec!["Podfile"]);
     matchers.insert("vendor", vec!["go.mod"]);
 
+    // paths we exclude
     let mut tm_exclude = vec!["Library", ".Trash"];
 
     let mut tmstats = Stats {
@@ -78,7 +82,7 @@ fn main() {
     let dbxpath = &dbx.folder();
     let has_dropbox = !dbx.path.is_empty();
 
-    // if dbx is already excluded from time machine, no need to travers
+    // if dbx is already excluded from time machine, no need to traverse
     if has_dropbox && args.tm_skip_dropbox {
         tm_exclude.push(dbxname);
     }
@@ -95,6 +99,7 @@ fn main() {
         attribute: XATTR_TIMEMACHINE,
         root_path: starting_path,
         verbose: args.verbose,
+        show_immutable: args.show_immutable,
     };
 
     // do time machine exclusions
@@ -122,6 +127,7 @@ fn main() {
         attribute: XATTR_DROPBOX,
         root_path: starting_path,
         verbose: args.verbose,
+        show_immutable: args.show_immutable,
     };
 
     walk(dbxoptions, &mut dbxstats);
@@ -160,6 +166,14 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
                     if sibling_path.exists() {
                         let path = String::from(entry.path().to_string_lossy());
                         if !is_writeable(sibling_path) {
+                            if options.show_immutable {
+                                println!(
+                                    "  ^ {} ",
+                                    sibling_path
+                                        .to_string_lossy()
+                                        .replace(options.root_path, "~")
+                                );
+                            }
                             stats.immutable += 1;
                             continue;
                         }
@@ -167,11 +181,10 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
 
                         if !already_excluded(options.attribute, &path) {
                             stats.added += 1;
-                            // Add the time machine exclusion, show the excluded dir and size
+                            // Add  exclusion, show the excluded dir and size
                             exclude(options.attribute, &path);
-                            // Add the time machine exclusion, show the excluded dir and size
                             if options.verbose {
-                                println!("  + {} ", path.replace(options.root_path, "~"),);
+                                println!("  + {} ", path.replace(options.root_path, "~"));
                             }
                         } else {
                             stats.skipped += 1
