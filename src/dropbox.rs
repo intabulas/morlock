@@ -1,6 +1,6 @@
 use ini::Ini;
 extern crate base64;
-use base64::decode;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use std::path::Path;
 use std::str;
 // add code here
@@ -46,8 +46,7 @@ impl DropBox {
                 .map(|l| l.expect("Could not parse line"))
                 .collect();
 
-            let bytes = decode(lines[1].as_bytes()).unwrap();
-
+            let bytes = BASE64.decode(lines[1].as_bytes()).unwrap();
             String::from_utf8(bytes).unwrap()
         } else if Path::new(&maestral_path).exists() {
             let conf = Ini::load_from_file(maestral_path).unwrap();

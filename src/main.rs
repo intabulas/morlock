@@ -160,7 +160,7 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
             if options.matchers.contains_key(&path.as_str()) {
                 let parent_path = entry.path().parent().unwrap().to_str();
                 let siblings = options.matchers.get(&path.as_str());
-                for sibling_name in siblings.unwrap().into_iter() {
+                for sibling_name in siblings.unwrap().iter() {
                     let sibling = [parent_path.unwrap(), sibling_name].join("/");
                     let sibling_path = Path::new(sibling.as_str());
                     if sibling_path.exists() {
