@@ -52,6 +52,7 @@ fn main() {
     matchers.insert("target", vec!["Cargo.toml", "pox.xml"]);
     matchers.insert("Pods", vec!["Podfile"]);
     matchers.insert("vendor", vec!["go.mod"]);
+    matchers.insert("_work", vec![".runner"]);
 
     // paths we exclude
     let mut tm_exclude = vec!["Library", ".Trash"];
