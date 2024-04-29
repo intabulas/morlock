@@ -55,7 +55,7 @@ fn main() {
     matchers.insert("_work", vec![".runner"]);
 
     // paths we exclude
-    let mut tm_exclude = vec!["Library", ".Trash"];
+    let mut tm_exclude = vec!["Library", ".Trash", "tmp"];
 
     let mut tmstats = Stats {
         added: 0,
