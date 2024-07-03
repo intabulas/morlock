@@ -53,10 +53,10 @@ fn main() {
     matchers.insert("Pods", vec!["Podfile"]);
     matchers.insert("vendor", vec!["go.mod"]);
     matchers.insert("_work", vec![".runner"]);
-    matchers.insert("addons", vec!["project.godot"]);
+    matchers.insert(".godot", vec!["project.godot"]);
 
     // paths we exclude
-    let mut tm_exclude = vec!["Library", ".Trash"];
+    let mut tm_exclude = vec!["Library", ".Trash", "tmp"];
 
     let mut tmstats = Stats {
         added: 0,
