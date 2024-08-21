@@ -91,7 +91,11 @@ fn main() {
 
     if args.verbose {
         println!("- Excluding package dependencies from Time Machine");
-        println!("  - From {}", starting_path);
+        if !starting_path.is_empty() {
+            println!("  - From {}", starting_path);
+        } else {
+            println!("  - nothing to process");
+        }
     }
 
     let tmotions = WalkOptions {
@@ -118,8 +122,10 @@ fn main() {
     let dbxpath = PathBuf::from(&dbxpath);
 
     if args.verbose {
-        println!("\n- Excluding package dependencies from Dropbox Sync");
-        println!("  - From {}", &dbx.path);
+        if !dbx.path.is_empty() {
+            println!("\n- Excluding package dependencies from Dropbox Sync");
+            println!("  - From {}", &dbx.path);
+        }
     }
 
     let dbxoptions = WalkOptions {
@@ -134,7 +140,7 @@ fn main() {
 
     walk(dbxoptions, &mut dbxstats);
 
-    if args.verbose {
+    if args.verbose && !dbx.path.is_empty() {
         println!(
             "  % checked {}, skipped {}, added {}",
             dbxstats.matched, dbxstats.skipped, dbxstats.added,
@@ -147,7 +153,7 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
     loop {
         let entry = match it.next() {
             None => break,
-            Some(Err(err)) => panic!("ERROR: {}", err),
+            Some(Err(_)) => break, //panic!("ERROR: {}", err),
             Some(Ok(entry)) => entry,
         };
 
