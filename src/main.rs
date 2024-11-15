@@ -54,6 +54,8 @@ fn main() {
     matchers.insert("vendor", vec!["go.mod"]);
     matchers.insert("_work", vec![".runner"]);
     matchers.insert(".godot", vec!["project.godot"]);
+    matchers.insert(".next", vec!["next.config.mjs"]);
+    matchers.insert(".swc", vec!["next.config.mjs"]);
 
     // paths we exclude
     let mut tm_exclude = vec!["Library", ".Trash", "tmp"];
