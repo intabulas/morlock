@@ -19,6 +19,8 @@ zig build test       # unit tests
 
 ## What's ported
 
+This is now at feature parity with the Rust version:
+
 - Recursive home/`--path` walk with **pruning** (matched/excluded dirs are not
   descended into), via a hand-rolled recursion over `std.Io.Dir.iterate`
 - The full matcher table (Node, Next.js, Turborepo, Nx, Rust, Zig, Swift, Go,
@@ -26,16 +28,19 @@ zig build test       # unit tests
 - The Time Machine skip list (`Library`, `.Trash`, `tmp`)
 - Setting / checking the Time Machine exclusion xattr via libc `setxattr` /
   `getxattr` (the extra macOS `position`/`options` params are handled)
-- Flags: `--path`/`-p`, `--dry-run`, `--verbose`/`-v`, `--show-immutable` (parsed)
+- The **writeability / immutable** check (`--show-immutable` reports dirs whose
+  marker file can't be opened for writing)
+- **Dropbox / Maestral** resolution (`host.db` base64 + `maestral.ini`) and the
+  separate Dropbox sync walk using `com.dropbox.ignored`
+- All flags: `--path`/`-p`, `--dry-run`, `--verbose`/`-v`, `--show-immutable`,
+  `--tm-skip-dropbox`, `--dont-sync-dropbox`, `--help`/`-h`, `--version`/`-V`
 
-## Not yet ported (vs. the Rust version)
+## Known differences from the Rust version
 
-- **Dropbox / Maestral** resolution and the Dropbox sync walk (the `host.db`
-  base64 + `maestral.ini` parsing), and `--tm-skip-dropbox` /
-  `--dont-sync-dropbox`
-- The **writeability / immutable** check (`--show-immutable` is parsed but not
-  yet acted on)
-- `--help` / `--version` text and clap-style usage errors
+- Argument parsing is hand-rolled, so it doesn't produce clap-style usage
+  errors for unknown/malformed flags (unknown flags are ignored).
+- Informational output goes to stderr (via `std.debug.print`) rather than
+  stdout.
 
 ## Notes on Zig 0.16
 
