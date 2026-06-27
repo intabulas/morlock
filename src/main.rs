@@ -20,6 +20,9 @@ struct Args {
     path: Option<String>,
     #[arg(long)]
     show_immutable: bool,
+    /// Report what would be excluded without modifying any attributes.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 #[derive(Debug, Default)]
@@ -38,6 +41,7 @@ struct WalkOptions<'a> {
     pub root_path: &'a str,
     pub verbose: bool,
     pub show_immutable: bool,
+    pub dry_run: bool,
 }
 
 const XATTR_DROPBOX: &str = "com.dropbox.ignored";
@@ -68,11 +72,17 @@ fn main() -> Result<()> {
         .to_str()
         .context("home directory path is not valid UTF-8")?;
 
-    // Used only for display: the root that gets shortened to "~" in output.
+    // Root of the Time Machine scan (defaults to $HOME). Also the prefix that
+    // gets shortened to "~" in output.
     let starting_path = match args.path.as_deref() {
         Some(p) if !p.is_empty() => p,
         _ => homedir_str,
     };
+    let scan_root = PathBuf::from(starting_path);
+
+    if args.dry_run {
+        println!("(dry run \u{2014} no attributes will be modified)");
+    }
 
     let mut dbx = DropBox::new();
     // folder() populates dbx.path, which name() reads, so it must run first.
@@ -95,13 +105,14 @@ fn main() -> Result<()> {
     let mut tmstats = Stats::default();
     walk(
         WalkOptions {
-            directory: &homedir,
+            directory: &scan_root,
             exclusions: &tm_exclude,
             matchers: &matchers,
             attribute: XATTR_TIMEMACHINE,
             root_path: starting_path,
             verbose: args.verbose,
             show_immutable: args.show_immutable,
+            dry_run: args.dry_run,
         },
         &mut tmstats,
     );
@@ -132,6 +143,7 @@ fn main() -> Result<()> {
                 root_path: starting_path,
                 verbose: args.verbose,
                 show_immutable: args.show_immutable,
+                dry_run: args.dry_run,
             },
             &mut dbxstats,
         );
@@ -199,14 +211,19 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
                 stats.skipped += 1;
             } else {
                 stats.added += 1;
-                exclude(options.attribute, &path);
-                if options.verbose {
+                if !options.dry_run {
+                    exclude(options.attribute, &path);
+                }
+                // Always report additions on a dry run, otherwise only when verbose.
+                if options.verbose || options.dry_run {
                     println!("  + {} ", path.replace(options.root_path, "~"));
                 }
             }
 
-            // No need to traverse any deeper.
+            // The directory is handled and not traversed deeper; one matching
+            // marker is enough, so stop checking further siblings.
             it.skip_current_dir();
+            break;
         }
     }
 }
