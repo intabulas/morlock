@@ -86,6 +86,14 @@ fn exclude(attr: [*:0]const u8, path: [*:0]const u8) void {
     _ = setxattr(path, attr, &value, value.len, 0, 0);
 }
 
+/// Print a line and flush immediately, so progress streams during a walk
+/// instead of appearing all at once at the end (matching the Rust version's
+/// line-buffered terminal output).
+fn emit(out: *Writer, comptime fmt: []const u8, args: anytype) !void {
+    try out.print(fmt, args);
+    try out.flush();
+}
+
 // --- walk -------------------------------------------------------------------
 
 fn fileExists(io: Io, dir: Dir, name: []const u8) bool {
@@ -139,7 +147,7 @@ fn handleMatch(ctx: *WalkCtx, dir: Dir, dir_path: []const u8, child_path: []cons
         if (!fileWriteable(ctx.io, dir, marker)) {
             if (ctx.opts.show_immutable) {
                 const mpath = try std.fs.path.join(ctx.alloc, &.{ dir_path, marker });
-                try ctx.out.print("  ^ {s}\n", .{mpath});
+                try emit(ctx.out, "  ^ {s}\n", .{mpath});
             }
             ctx.stats.immutable += 1;
             continue; // a different marker might still be writeable
@@ -153,7 +161,7 @@ fn handleMatch(ctx: *WalkCtx, dir: Dir, dir_path: []const u8, child_path: []cons
             ctx.stats.added += 1;
             if (!ctx.opts.dry_run) exclude(ctx.attr, cpath);
             if (ctx.opts.verbose or ctx.opts.dry_run) {
-                try ctx.out.print("  + {s}\n", .{child_path});
+                try emit(ctx.out, "  + {s}\n", .{child_path});
             }
         }
         return true; // one marker is enough; do not traverse deeper
@@ -250,7 +258,7 @@ pub fn main(init: std.process.Init) !void {
     const dbx_folder = try dropbox.resolveFolder(io, alloc, home);
     const has_dropbox = dbx_folder != null;
 
-    if (opts.dry_run) try out.print("(dry run \u{2014} no attributes will be modified)\n", .{});
+    if (opts.dry_run) try emit(out, "(dry run \u{2014} no attributes will be modified)\n", .{});
 
     // Build the Time Machine exclusion list (statics + optionally Dropbox).
     var excl_buf: [tm_exclude.len + 1][]const u8 = undefined;
@@ -265,7 +273,7 @@ pub fn main(init: std.process.Init) !void {
     // Time Machine walk.
     if (opts.verbose) {
         try out.print("- Excluding package dependencies from Time Machine\n", .{});
-        try out.print("  - From {s}\n", .{root_path});
+        try emit(out, "  - From {s}\n", .{root_path});
     }
     var tmstats = Stats{};
     {
@@ -275,7 +283,7 @@ pub fn main(init: std.process.Init) !void {
         try walk(&tm_ctx, root, root_path);
     }
     if (opts.verbose) {
-        try out.print("  % checked {d}, skipped {d}, added {d}, immutable: {d}\n", .{ tmstats.matched, tmstats.skipped, tmstats.added, tmstats.immutable });
+        try emit(out, "  % checked {d}, skipped {d}, added {d}, immutable: {d}\n", .{ tmstats.matched, tmstats.skipped, tmstats.added, tmstats.immutable });
     }
 
     // Dropbox sync walk.
@@ -283,7 +291,7 @@ pub fn main(init: std.process.Init) !void {
         const dpath = dbx_folder.?;
         if (opts.verbose) {
             try out.print("\n- Excluding package dependencies from Dropbox Sync\n", .{});
-            try out.print("  - From {s}\n", .{dpath});
+            try emit(out, "  - From {s}\n", .{dpath});
         }
         var dstats = Stats{};
         if (Dir.cwd().openDir(io, dpath, .{ .iterate = true })) |droot_const| {
@@ -293,7 +301,7 @@ pub fn main(init: std.process.Init) !void {
             try walk(&dbx_ctx, droot, dpath);
         } else |_| {}
         if (opts.verbose) {
-            try out.print("  % checked {d}, skipped {d}, added {d}\n", .{ dstats.matched, dstats.skipped, dstats.added });
+            try emit(out, "  % checked {d}, skipped {d}, added {d}\n", .{ dstats.matched, dstats.skipped, dstats.added });
         }
     }
 }
