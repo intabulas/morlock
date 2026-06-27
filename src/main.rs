@@ -1,12 +1,11 @@
+use anyhow::{Context, Result};
 use clap::Parser;
 use dropbox::DropBox;
+use std::collections::HashMap;
 use std::fs::File;
-use std::path::Path;
-use std::{collections::HashMap, str};
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
-use xattr::{list, set};
-extern crate ini;
-use std::path::PathBuf;
+use xattr::{get, set};
 mod dropbox;
 
 #[derive(Parser, Debug)]
@@ -23,7 +22,7 @@ struct Args {
     show_immutable: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct Stats {
     matched: u64,
     skipped: u64,
@@ -32,7 +31,7 @@ struct Stats {
 }
 
 struct WalkOptions<'a> {
-    pub directory: &'a PathBuf,
+    pub directory: &'a Path,
     pub exclusions: &'a [&'a str],
     pub matchers: &'a HashMap<&'a str, Vec<&'a str>>,
     pub attribute: &'a str,
@@ -40,78 +39,72 @@ struct WalkOptions<'a> {
     pub verbose: bool,
     pub show_immutable: bool,
 }
+
 const XATTR_DROPBOX: &str = "com.dropbox.ignored";
 const XATTR_TIMEMACHINE: &str = "com.apple.metadata:com_apple_backup_excludeItem";
 
-fn main() {
+/// Directory name -> sibling marker files that confirm it's a build/dependency dir.
+fn build_matchers() -> HashMap<&'static str, Vec<&'static str>> {
+    HashMap::from([
+        ("bower_components", vec!["bower.json"]),
+        ("node_modules", vec!["package.json"]),
+        ("target", vec!["Cargo.toml", "pox.xml"]),
+        ("Pods", vec!["Podfile"]),
+        ("vendor", vec!["go.mod"]),
+        ("_work", vec![".runner"]),
+        (".godot", vec!["project.godot"]),
+        (".next", vec!["next.config.mjs"]),
+        (".swc", vec!["next.config.mjs"]),
+    ])
+}
+
+fn main() -> Result<()> {
     let args = Args::parse();
 
-    let mut matchers = HashMap::new();
-    matchers.insert("bower_components", vec!["bower.json"]);
-    matchers.insert("node_modules", vec!["package.json"]);
-    matchers.insert("target", vec!["Cargo.toml", "pox.xml"]);
-    matchers.insert("Pods", vec!["Podfile"]);
-    matchers.insert("vendor", vec!["go.mod"]);
-    matchers.insert("_work", vec![".runner"]);
-    matchers.insert(".godot", vec!["project.godot"]);
-    matchers.insert(".next", vec!["next.config.mjs"]);
-    matchers.insert(".swc", vec!["next.config.mjs"]);
+    let matchers = build_matchers();
 
-    // paths we exclude
-    let mut tm_exclude = vec!["Library", ".Trash", "tmp"];
+    let homedir = dirs::home_dir().context("could not determine home directory")?;
+    let homedir_str = homedir
+        .to_str()
+        .context("home directory path is not valid UTF-8")?;
 
-    let mut tmstats = Stats {
-        added: 0,
-        matched: 0,
-        skipped: 0,
-        immutable: 0,
+    // Used only for display: the root that gets shortened to "~" in output.
+    let starting_path = match args.path.as_deref() {
+        Some(p) if !p.is_empty() => p,
+        _ => homedir_str,
     };
-
-    let mut dbxstats = Stats {
-        added: 0,
-        matched: 0,
-        skipped: 0,
-        immutable: 0,
-    };
-    let homedir = dirs::home_dir().unwrap();
-
-    let mut starting_path = homedir.to_str().unwrap();
-    let specified_path = args.path.unwrap_or_default();
-    if !specified_path.is_empty() {
-        starting_path = &specified_path;
-    }
 
     let mut dbx = DropBox::new();
-    let dbxname = &dbx.name();
-    let dbxpath = &dbx.folder();
+    // folder() populates dbx.path, which name() reads, so it must run first.
+    dbx.folder()?;
     let has_dropbox = !dbx.path.is_empty();
+    let dbxname = dbx.name().to_string();
 
-    // if dbx is already excluded from time machine, no need to traverse
+    // Directory names we skip entirely during the Time Machine walk.
+    let mut tm_exclude = vec!["Library", ".Trash", "tmp"];
+    // If asked, skip the Dropbox tree under Time Machine (Dropbox handles its own).
     if has_dropbox && args.tm_skip_dropbox {
-        tm_exclude.push(dbxname);
+        tm_exclude.push(&dbxname);
     }
 
     if args.verbose {
         println!("- Excluding package dependencies from Time Machine");
-        if !starting_path.is_empty() {
-            println!("  - From {}", starting_path);
-        } else {
-            println!("  - nothing to process");
-        }
+        println!("  - From {starting_path}");
     }
 
-    let tmotions = WalkOptions {
-        directory: &homedir,
-        exclusions: &tm_exclude,
-        matchers: &matchers,
-        attribute: XATTR_TIMEMACHINE,
-        root_path: starting_path,
-        verbose: args.verbose,
-        show_immutable: args.show_immutable,
-    };
-
-    // do time machine exclusions
-    walk(tmotions, &mut tmstats);
+    let mut tmstats = Stats::default();
+    walk(
+        WalkOptions {
+            directory: &homedir,
+            exclusions: &tm_exclude,
+            matchers: &matchers,
+            attribute: XATTR_TIMEMACHINE,
+            root_path: starting_path,
+            verbose: args.verbose,
+            show_immutable: args.show_immutable,
+        },
+        &mut tmstats,
+    );
 
     if args.verbose {
         println!(
@@ -120,34 +113,38 @@ fn main() {
         );
     }
 
-    // lets to Dropbox
-    let dbxpath = PathBuf::from(&dbxpath);
+    // Dropbox sync exclusions.
+    if has_dropbox && !args.dont_sync_dropbox {
+        let dbxpath = PathBuf::from(&dbx.path);
 
-    if args.verbose {
-        if !dbx.path.is_empty() {
+        if args.verbose {
             println!("\n- Excluding package dependencies from Dropbox Sync");
-            println!("  - From {}", &dbx.path);
+            println!("  - From {}", dbx.path);
+        }
+
+        let mut dbxstats = Stats::default();
+        walk(
+            WalkOptions {
+                directory: &dbxpath,
+                exclusions: &[],
+                matchers: &matchers,
+                attribute: XATTR_DROPBOX,
+                root_path: starting_path,
+                verbose: args.verbose,
+                show_immutable: args.show_immutable,
+            },
+            &mut dbxstats,
+        );
+
+        if args.verbose {
+            println!(
+                "  % checked {}, skipped {}, added {}",
+                dbxstats.matched, dbxstats.skipped, dbxstats.added,
+            );
         }
     }
 
-    let dbxoptions = WalkOptions {
-        directory: &dbxpath,
-        exclusions: &[],
-        matchers: &matchers,
-        attribute: XATTR_DROPBOX,
-        root_path: starting_path,
-        verbose: args.verbose,
-        show_immutable: args.show_immutable,
-    };
-
-    walk(dbxoptions, &mut dbxstats);
-
-    if args.verbose && !dbx.path.is_empty() {
-        println!(
-            "  % checked {}, skipped {}, added {}",
-            dbxstats.matched, dbxstats.skipped, dbxstats.added,
-        );
-    }
+    Ok(())
 }
 
 fn walk(options: WalkOptions, stats: &mut Stats) {
@@ -155,70 +152,68 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
     loop {
         let entry = match it.next() {
             None => break,
-            Some(Err(_)) => break, //panic!("ERROR: {}", err),
+            // Skip unreadable entries instead of aborting the whole walk.
+            Some(Err(_)) => continue,
             Some(Ok(entry)) => entry,
         };
 
-        if entry.file_type().is_dir() {
-            let path = String::from(entry.file_name().to_string_lossy());
+        if !entry.file_type().is_dir() {
+            continue;
+        }
 
-            // Exclude some paths
-            if options.exclusions.contains(&path.as_str()) {
-                it.skip_current_dir();
+        let name = entry.file_name().to_string_lossy();
+
+        // Exclude some paths outright.
+        if options.exclusions.contains(&name.as_ref()) {
+            it.skip_current_dir();
+            continue;
+        }
+
+        let Some(siblings) = options.matchers.get(name.as_ref()) else {
+            continue;
+        };
+        let Some(parent) = entry.path().parent() else {
+            continue;
+        };
+
+        for sibling_name in siblings {
+            let sibling_path = parent.join(sibling_name);
+            if !sibling_path.exists() {
+                continue;
             }
 
-            if options.matchers.contains_key(&path.as_str()) {
-                let parent_path = entry.path().parent().unwrap().to_str();
-                let siblings = options.matchers.get(&path.as_str());
-                for sibling_name in siblings.unwrap().iter() {
-                    let sibling = [parent_path.unwrap(), sibling_name].join("/");
-                    let sibling_path = Path::new(sibling.as_str());
-                    if sibling_path.exists() {
-                        let path = String::from(entry.path().to_string_lossy());
-                        if !is_writeable(sibling_path) {
-                            if options.show_immutable {
-                                println!(
-                                    "  ^ {} ",
-                                    sibling_path
-                                        .to_string_lossy()
-                                        .replace(options.root_path, "~")
-                                );
-                            }
-                            stats.immutable += 1;
-                            continue;
-                        }
-                        stats.matched += 1;
+            let path = entry.path().to_string_lossy().into_owned();
+            if !is_writeable(&sibling_path) {
+                if options.show_immutable {
+                    println!(
+                        "  ^ {} ",
+                        sibling_path.to_string_lossy().replace(options.root_path, "~")
+                    );
+                }
+                stats.immutable += 1;
+                continue;
+            }
 
-                        if !already_excluded(options.attribute, &path) {
-                            stats.added += 1;
-                            // Add  exclusion, show the excluded dir and size
-                            exclude(options.attribute, &path);
-                            if options.verbose {
-                                println!("  + {} ", path.replace(options.root_path, "~"));
-                            }
-                        } else {
-                            stats.skipped += 1
-                        }
-                        // no need to traverse any deeper
-                        it.skip_current_dir();
-                    }
+            stats.matched += 1;
+            if already_excluded(options.attribute, &path) {
+                stats.skipped += 1;
+            } else {
+                stats.added += 1;
+                exclude(options.attribute, &path);
+                if options.verbose {
+                    println!("  + {} ", path.replace(options.root_path, "~"));
                 }
             }
+
+            // No need to traverse any deeper.
+            it.skip_current_dir();
         }
     }
 }
 
 pub fn already_excluded(key: &str, path: &str) -> bool {
-    let mut xattrs = list(path).unwrap().peekable();
-    if xattrs.peek().is_none() {
-        return false;
-    }
-    for attr in xattrs {
-        if attr == key {
-            return true;
-        }
-    }
-    false
+    // An unreadable attribute (e.g. permissions) is treated as "not excluded".
+    matches!(get(path, key), Ok(Some(_)))
 }
 
 pub fn is_writeable(path: impl AsRef<Path>) -> bool {
@@ -231,6 +226,5 @@ pub fn is_writeable(path: impl AsRef<Path>) -> bool {
 }
 
 pub fn exclude(key: &str, path: &str) {
-    let value = vec![1; 1];
-    let _ = set(path, key, &value);
+    let _ = set(path, key, &[1u8]);
 }

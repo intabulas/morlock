@@ -1,68 +1,62 @@
+use anyhow::{Context, Result};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use ini::Ini;
-extern crate base64;
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use std::path::Path;
-use std::str;
-// add code here
+use std::fs;
 
-use std::{
-    fs::File,
-    io::{prelude::*, BufReader},
-};
+/// The official Dropbox client stores a base64-encoded path in host.db.
+const DROPBOX_HOST_DB: &str = ".dropbox/host.db";
+/// Maestral stores its sync folder in an INI file under the home directory.
+const MAESTRAL_INI: &str = "Library/Application Support/maestral/maestral.ini";
 
-const PATH_MAESTRAL: &str = "/Library/Application Support/maestral/maestral.ini";
-const PATH_DROPBOX: &str = "/.dropbox/host.db";
-
+#[derive(Default)]
 pub struct DropBox {
     pub path: String,
 }
 
 impl DropBox {
     pub fn new() -> Self {
-        Self {
-            path: "".to_string(),
-        }
+        Self::default()
     }
 
-    pub fn folder(&mut self) -> String {
+    /// Resolve and cache the Dropbox folder. Returns an empty string when no
+    /// Dropbox or Maestral installation is found.
+    pub fn folder(&mut self) -> Result<&str> {
         if self.path.is_empty() {
-            self.path = self.get_folder();
+            self.path = Self::resolve_folder()?;
         }
-        self.path.clone()
+        Ok(&self.path)
     }
 
-    fn get_folder(&self) -> String {
-        let homedir = dirs::home_dir().unwrap().display().to_string();
+    fn resolve_folder() -> Result<String> {
+        let home = dirs::home_dir().context("could not determine home directory")?;
+        let host_db = home.join(DROPBOX_HOST_DB);
+        let maestral = home.join(MAESTRAL_INI);
 
-        let maestral_path = format!("{}{}", homedir, PATH_MAESTRAL);
-
-        let dbx = format!("{}{}", homedir, PATH_DROPBOX);
-
-        if Path::new(&dbx).exists() {
-            let file = File::open(dbx).expect("no such file");
-            let buf = BufReader::new(file);
-            let lines: Vec<String> = buf
+        if host_db.exists() {
+            let contents = fs::read_to_string(&host_db)
+                .with_context(|| format!("reading {}", host_db.display()))?;
+            let encoded = contents
                 .lines()
-                .map(|l| l.expect("Could not parse line"))
-                .collect();
-
-            let bytes = BASE64.decode(lines[1].as_bytes()).unwrap();
-            String::from_utf8(bytes).unwrap()
-        } else if Path::new(&maestral_path).exists() {
-            let conf = Ini::load_from_file(maestral_path).unwrap();
-            let section = conf.section(Some("sync")).unwrap();
-            let path = section.get("path").unwrap();
-
-            path.to_string()
+                .nth(1)
+                .context("host.db did not contain a path on its second line")?;
+            let bytes = BASE64
+                .decode(encoded.as_bytes())
+                .context("decoding base64 path from host.db")?;
+            String::from_utf8(bytes).context("Dropbox path in host.db was not valid UTF-8")
+        } else if maestral.exists() {
+            let conf = Ini::load_from_file(&maestral)
+                .with_context(|| format!("loading {}", maestral.display()))?;
+            let path = conf
+                .section(Some("sync"))
+                .and_then(|s| s.get("path"))
+                .context("maestral.ini is missing a [sync] path entry")?;
+            Ok(path.to_string())
         } else {
-            "".to_string()
+            Ok(String::new())
         }
-
-        // Are they using maestral? they should be
     }
 
-    pub fn name(&self) -> String {
-        let pieces = self.path.split('/');
-        pieces.last().unwrap().to_string()
+    pub fn name(&self) -> &str {
+        self.path.rsplit('/').next().unwrap_or_default()
     }
 }
