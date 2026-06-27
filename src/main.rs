@@ -54,15 +54,29 @@ const XATTR_TIMEMACHINE: &str = "com.apple.metadata:com_apple_backup_excludeItem
 /// Directory name -> sibling marker files that confirm it's a build/dependency dir.
 fn build_matchers() -> HashMap<&'static str, Vec<&'static str>> {
     HashMap::from([
+        // JavaScript / Node
         ("bower_components", vec!["bower.json"]),
         ("node_modules", vec!["package.json"]),
-        ("target", vec!["Cargo.toml", "pox.xml"]),
-        ("Pods", vec!["Podfile"]),
-        ("vendor", vec!["go.mod"]),
-        ("_work", vec![".runner"]),
-        (".godot", vec!["project.godot"]),
         (".next", vec!["next.config.mjs"]),
         (".swc", vec!["next.config.mjs"]),
+        // JS monorepo task runners
+        (".turbo", vec!["turbo.json"]),
+        (".nx", vec!["nx.json"]),
+        // Rust
+        ("target", vec!["Cargo.toml", "pox.xml"]),
+        // Zig
+        ("zig-out", vec!["build.zig"]),
+        ("zig-cache", vec!["build.zig"]),
+        (".zig-cache", vec!["build.zig"]),
+        // Swift / Apple
+        (".build", vec!["Package.swift"]),
+        ("Pods", vec!["Podfile"]),
+        // Go
+        ("vendor", vec!["go.mod"]),
+        // Godot
+        (".godot", vec!["project.godot"]),
+        // GitHub Actions self-hosted runner
+        ("_work", vec![".runner"]),
     ])
 }
 

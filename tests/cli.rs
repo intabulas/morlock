@@ -28,6 +28,14 @@ fn fixture() -> TempDir {
     std::fs::create_dir_all(root.join("nomatch/node_modules")).unwrap();
     std::fs::write(root.join("proj/package.json"), "{}").unwrap();
     std::fs::write(root.join("proj/Cargo.toml"), "").unwrap();
+
+    // A Zig project (zig-out next to build.zig) and a Turborepo workspace
+    // (.turbo next to turbo.json) to exercise the expanded matchers.
+    std::fs::create_dir_all(root.join("zigproj/zig-out")).unwrap();
+    std::fs::write(root.join("zigproj/build.zig"), "").unwrap();
+    std::fs::create_dir_all(root.join("mono/.turbo")).unwrap();
+    std::fs::write(root.join("mono/turbo.json"), "{}").unwrap();
+
     dir
 }
 
@@ -57,6 +65,8 @@ fn real_run_excludes_only_dirs_with_a_sibling_marker() {
     // Dirs sitting next to their marker file get excluded.
     assert!(is_excluded(&root.join("proj/node_modules")));
     assert!(is_excluded(&root.join("proj/target")));
+    assert!(is_excluded(&root.join("zigproj/zig-out")));
+    assert!(is_excluded(&root.join("mono/.turbo")));
     // node_modules with no sibling package.json is left untouched.
     assert!(!is_excluded(&root.join("nomatch/node_modules")));
 }
