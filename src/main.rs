@@ -245,3 +245,24 @@ pub fn is_writeable(path: impl AsRef<Path>) -> bool {
 pub fn exclude(key: &str, path: &str) {
     let _ = set(path, key, &[1u8]);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matchers_map_dirs_to_their_markers() {
+        let matchers = build_matchers();
+        assert_eq!(matchers.get("node_modules"), Some(&vec!["package.json"]));
+        assert!(matchers["target"].contains(&"Cargo.toml"));
+        assert!(!matchers.contains_key("not_a_build_dir"));
+    }
+
+    #[test]
+    fn every_matcher_has_at_least_one_marker() {
+        for (dir, markers) in build_matchers() {
+            assert!(!dir.is_empty());
+            assert!(!markers.is_empty(), "{dir} has no marker files");
+        }
+    }
+}
