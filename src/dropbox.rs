@@ -116,7 +116,13 @@ mod tests {
 
     #[test]
     fn name_handles_no_slash_and_empty_path() {
-        assert_eq!(DropBox { path: "Dropbox".into() }.name(), "Dropbox");
+        assert_eq!(
+            DropBox {
+                path: "Dropbox".into()
+            }
+            .name(),
+            "Dropbox"
+        );
         assert_eq!(DropBox::new().name(), "");
     }
 }

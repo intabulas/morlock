@@ -9,6 +9,10 @@ use xattr::{get, set};
 mod dropbox;
 
 #[derive(Parser, Debug)]
+#[command(
+    version,
+    about = "Exclude package dependency and build directories from Time Machine backups and Dropbox sync"
+)]
 struct Args {
     #[arg(short, long)]
     verbose: bool,
@@ -199,7 +203,9 @@ fn walk(options: WalkOptions, stats: &mut Stats) {
                 if options.show_immutable {
                     println!(
                         "  ^ {} ",
-                        sibling_path.to_string_lossy().replace(options.root_path, "~")
+                        sibling_path
+                            .to_string_lossy()
+                            .replace(options.root_path, "~")
                     );
                 }
                 stats.immutable += 1;
