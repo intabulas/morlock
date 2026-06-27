@@ -35,12 +35,12 @@ This is now at feature parity with the Rust version:
 - All flags: `--path`/`-p`, `--dry-run`, `--verbose`/`-v`, `--show-immutable`,
   `--tm-skip-dropbox`, `--dont-sync-dropbox`, `--help`/`-h`, `--version`/`-V`
 
-## Known differences from the Rust version
+## Output & errors
 
-- Argument parsing is hand-rolled, so it doesn't produce clap-style usage
-  errors for unknown/malformed flags (unknown flags are ignored).
-- Informational output goes to stderr (via `std.debug.print`) rather than
-  stdout.
+- Informational output (the walk, headers, summary) is buffered and written to
+  stdout via the 0.16 `std.Io.Writer`.
+- Unknown flags and a missing `--path` value print a clap-style message to
+  stderr and exit with code 2; `--help`/`--version` print to stdout and exit 0.
 
 ## Notes on Zig 0.16
 
