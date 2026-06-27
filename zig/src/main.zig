@@ -1,6 +1,7 @@
 const std = @import("std");
 const Io = std.Io;
 const Dir = std.Io.Dir;
+const Writer = std.Io.Writer;
 const dropbox = @import("dropbox.zig");
 
 const VERSION = "0.4.0";
@@ -103,6 +104,7 @@ fn fileWriteable(io: Io, dir: Dir, name: []const u8) bool {
 const WalkCtx = struct {
     io: Io,
     alloc: std.mem.Allocator,
+    out: *Writer,
     attr: [*:0]const u8,
     exclusions: []const []const u8,
     opts: Options,
@@ -137,7 +139,7 @@ fn handleMatch(ctx: *WalkCtx, dir: Dir, dir_path: []const u8, child_path: []cons
         if (!fileWriteable(ctx.io, dir, marker)) {
             if (ctx.opts.show_immutable) {
                 const mpath = try std.fs.path.join(ctx.alloc, &.{ dir_path, marker });
-                std.debug.print("  ^ {s}\n", .{mpath});
+                try ctx.out.print("  ^ {s}\n", .{mpath});
             }
             ctx.stats.immutable += 1;
             continue; // a different marker might still be writeable
@@ -151,7 +153,7 @@ fn handleMatch(ctx: *WalkCtx, dir: Dir, dir_path: []const u8, child_path: []cons
             ctx.stats.added += 1;
             if (!ctx.opts.dry_run) exclude(ctx.attr, cpath);
             if (ctx.opts.verbose or ctx.opts.dry_run) {
-                std.debug.print("  + {s}\n", .{child_path});
+                try ctx.out.print("  + {s}\n", .{child_path});
             }
         }
         return true; // one marker is enough; do not traverse deeper
@@ -161,7 +163,13 @@ fn handleMatch(ctx: *WalkCtx, dir: Dir, dir_path: []const u8, child_path: []cons
 
 // --- arg parsing & help -----------------------------------------------------
 
-fn parseArgs(args: std.process.Args) Options {
+const ParseResult = union(enum) {
+    ok: Options,
+    unknown_flag: []const u8,
+    missing_value: []const u8,
+};
+
+fn parseArgs(args: std.process.Args) ParseResult {
     var opts = Options{};
     var it = std.process.Args.Iterator.init(args);
     _ = it.skip(); // argv[0]
@@ -181,14 +189,16 @@ fn parseArgs(args: std.process.Args) Options {
         } else if (std.mem.eql(u8, arg, "--version") or std.mem.eql(u8, arg, "-V")) {
             opts.version = true;
         } else if (std.mem.eql(u8, arg, "--path") or std.mem.eql(u8, arg, "-p")) {
-            opts.path = it.next();
+            opts.path = it.next() orelse return .{ .missing_value = arg };
+        } else {
+            return .{ .unknown_flag = arg };
         }
     }
-    return opts;
+    return .{ .ok = opts };
 }
 
-fn printHelp() void {
-    std.debug.print(
+fn printHelp(out: *Writer) !void {
+    try out.writeAll(
         \\Exclude package dependency and build directories from Time Machine backups and Dropbox sync
         \\
         \\Usage: morlock [OPTIONS]
@@ -203,7 +213,14 @@ fn printHelp() void {
         \\  -h, --help               Print help
         \\  -V, --version            Print version
         \\
-    , .{});
+    );
+}
+
+/// Print a clap-style usage error to stderr and exit with code 2.
+fn usageError(comptime fmt: []const u8, args: anytype) noreturn {
+    std.debug.print("error: " ++ fmt ++ "\n", args);
+    std.debug.print("\nUsage: morlock [OPTIONS]\nFor more information, try '--help'.\n", .{});
+    std.process.exit(2);
 }
 
 // --- main -------------------------------------------------------------------
@@ -212,9 +229,20 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const alloc = init.arena.allocator();
 
-    const opts = parseArgs(init.minimal.args);
-    if (opts.help) return printHelp();
-    if (opts.version) return std.debug.print("morlock {s}\n", .{VERSION});
+    const opts = switch (parseArgs(init.minimal.args)) {
+        .ok => |o| o,
+        .unknown_flag => |f| usageError("unrecognized argument '{s}'", .{f}),
+        .missing_value => |f| usageError("a value is required for '{s}'", .{f}),
+    };
+
+    // Buffered stdout via the 0.16 std.Io writer.
+    var out_buf: [4096]u8 = undefined;
+    var out_fw = std.Io.File.stdout().writer(io, &out_buf);
+    const out = &out_fw.interface;
+    defer out.flush() catch {};
+
+    if (opts.help) return printHelp(out);
+    if (opts.version) return out.print("morlock {s}\n", .{VERSION});
 
     const home = init.environ_map.get("HOME") orelse return error.NoHomeDir;
     const root_path = opts.path orelse home;
@@ -222,7 +250,7 @@ pub fn main(init: std.process.Init) !void {
     const dbx_folder = try dropbox.resolveFolder(io, alloc, home);
     const has_dropbox = dbx_folder != null;
 
-    if (opts.dry_run) std.debug.print("(dry run \u{2014} no attributes will be modified)\n", .{});
+    if (opts.dry_run) try out.print("(dry run \u{2014} no attributes will be modified)\n", .{});
 
     // Build the Time Machine exclusion list (statics + optionally Dropbox).
     var excl_buf: [tm_exclude.len + 1][]const u8 = undefined;
@@ -236,36 +264,36 @@ pub fn main(init: std.process.Init) !void {
 
     // Time Machine walk.
     if (opts.verbose) {
-        std.debug.print("- Excluding package dependencies from Time Machine\n", .{});
-        std.debug.print("  - From {s}\n", .{root_path});
+        try out.print("- Excluding package dependencies from Time Machine\n", .{});
+        try out.print("  - From {s}\n", .{root_path});
     }
     var tmstats = Stats{};
     {
-        var tm_ctx = WalkCtx{ .io = io, .alloc = alloc, .attr = XATTR_TIMEMACHINE, .exclusions = exclusions, .opts = opts, .stats = &tmstats };
+        var tm_ctx = WalkCtx{ .io = io, .alloc = alloc, .out = out, .attr = XATTR_TIMEMACHINE, .exclusions = exclusions, .opts = opts, .stats = &tmstats };
         var root = try Dir.cwd().openDir(io, root_path, .{ .iterate = true });
         defer root.close(io);
         try walk(&tm_ctx, root, root_path);
     }
     if (opts.verbose) {
-        std.debug.print("  % checked {d}, skipped {d}, added {d}, immutable: {d}\n", .{ tmstats.matched, tmstats.skipped, tmstats.added, tmstats.immutable });
+        try out.print("  % checked {d}, skipped {d}, added {d}, immutable: {d}\n", .{ tmstats.matched, tmstats.skipped, tmstats.added, tmstats.immutable });
     }
 
     // Dropbox sync walk.
     if (has_dropbox and !opts.dont_sync_dropbox) {
         const dpath = dbx_folder.?;
         if (opts.verbose) {
-            std.debug.print("\n- Excluding package dependencies from Dropbox Sync\n", .{});
-            std.debug.print("  - From {s}\n", .{dpath});
+            try out.print("\n- Excluding package dependencies from Dropbox Sync\n", .{});
+            try out.print("  - From {s}\n", .{dpath});
         }
         var dstats = Stats{};
         if (Dir.cwd().openDir(io, dpath, .{ .iterate = true })) |droot_const| {
             var droot = droot_const;
             defer droot.close(io);
-            var dbx_ctx = WalkCtx{ .io = io, .alloc = alloc, .attr = XATTR_DROPBOX, .exclusions = &.{}, .opts = opts, .stats = &dstats };
+            var dbx_ctx = WalkCtx{ .io = io, .alloc = alloc, .out = out, .attr = XATTR_DROPBOX, .exclusions = &.{}, .opts = opts, .stats = &dstats };
             try walk(&dbx_ctx, droot, dpath);
         } else |_| {}
         if (opts.verbose) {
-            std.debug.print("  % checked {d}, skipped {d}, added {d}\n", .{ dstats.matched, dstats.skipped, dstats.added });
+            try out.print("  % checked {d}, skipped {d}, added {d}\n", .{ dstats.matched, dstats.skipped, dstats.added });
         }
     }
 }
